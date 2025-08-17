@@ -1,5 +1,4 @@
 
-
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 
@@ -116,7 +115,7 @@ const tasks = [
 
 /** ---------- Helpers ---------- */
 const dateKey = (d = new Date()) =>
-  d.toLocaleDateString("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" }); // YYYY-MM-DD
+  d.toLocaleDateString("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" });
 
 const parseHHMM = (hhmm) => {
   const [h, m] = hhmm.split(":" ).map(Number);
@@ -155,64 +154,29 @@ const LS_STREAK = "tt_streak";
 const LS_LAST_DATE = "tt_last_date";
 const LS_EMERGENCY = (dk) => `tt_emergency_${dk}`;
 
-/** ---------- Tiny beep on task change ---------- */
-const beep = () => {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = "sine";
-    o.frequency.setValueAtTime(880, ctx.currentTime);
-    g.gain.setValueAtTime(0.0001, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.2);
-    o.connect(g);
-    g.connect(ctx.destination);
-    o.start();
-    o.stop(ctx.currentTime + 0.22);
-  } catch {}
-};
-
 /** ---------- Main App ---------- */
 export default function App() {
   const [dk, setDk] = useState(dateKey());
   const [currentIdx, setCurrentIdx] = useState(findCurrentTaskIndex());
   const [timeLeft, setTimeLeft] = useState(secondsLeftInCurrent(findCurrentTaskIndex()));
   const [focusMode, setFocusMode] = useState(false);
-  const [showReport, setShowReport] = useState(false);
   const [emergencyLeft, setEmergencyLeft] = useState(() => {
     try { return Number(localStorage.getItem(LS_EMERGENCY(dateKey())) || 10); } catch { return 10; }
   });
   const [emergencyActive, setEmergencyActive] = useState(false);
   const [taskCompletedEarly, setTaskCompletedEarly] = useState(false);
 
-  // load persisted arrays
   const [completed, setCompleted] = useState(() => {
     try { return JSON.parse(localStorage.getItem(LS_COMPLETIONS(dateKey())) || "[]"); } catch { return []; }
   });
   const [skipped, setSkipped] = useState(() => {
     try { return JSON.parse(localStorage.getItem(LS_SKIPS(dateKey())) || "[]"); } catch { return []; }
   });
-  const [streak, setStreak] = useState(() => Number(localStorage.getItem(LS_STREAK) || 0));
 
   const currentTask = currentIdx >= 0 ? tasks[currentIdx] : null;
-
-  // Derived stats
   const completedSet = useMemo(() => new Set(completed), [completed]);
-  const skippedSet = useMemo(() => new Set(skipped), [skipped]);
-  const doneCount = completedSet.size;
-  const skipCount = skippedSet.size;
-  const total = tasks.length;
-  const successRate = Math.round((doneCount / total) * 100);
 
-  // Request notification permission once
-  useEffect(() => {
-    if ("Notification" in window && Notification.permission === "default") {
-      Notification.requestPermission().catch(() => {});
-    }
-  }, []);
-
-  // Tick every second: update timer, detect task changes & date rollover
+  // Tick loop
   useEffect(() => {
     let lastIdx = findCurrentTaskIndex();
     const timer = setInterval(() => {
@@ -220,57 +184,55 @@ export default function App() {
       setCurrentIdx(nowIdx);
       setTimeLeft(secondsLeftInCurrent(nowIdx));
 
-      // date rollover handling
-      const nowKey = dateKey();
-      if (nowKey !== dk) {
-        finalizePreviousDay(dk);
-        setDk(nowKey);
-        const newC = JSON.parse(localStorage.getItem(LS_COMPLETIONS(nowKey) || "[]") || "[]");
-        const newS = JSON.parse(localStorage.getItem(LS_SKIPS(nowKey) || "[]") || "[]");
-        setCompleted(Array.isArray(newC) ? newC : []);
-        setSkipped(Array.isArray(newS) ? newS : []);
-        setShowReport(true);
-      }
-
-      // Task change: notify + beep
-      if (nowIdx !== lastIdx) {
-        if (currentTask) {
-          notifyTask(nowIdx);
-          beep();
-        }
-        lastIdx = nowIdx;
-      }
-
-      // Auto lock/unlock depending on task state
       if (nowIdx >= 0 && !emergencyActive) {
         if (taskCompletedEarly) {
-          setFocusMode(false); // unlock if task was completed early
+          setFocusMode(false); // allow navigation if task done early
         } else {
-          setFocusMode(true); // lock during active task if not completed
+          setFocusMode(true); // lock if active task not completed
         }
       } else if (nowIdx < 0 && !emergencyActive) {
-        setFocusMode(false); // unlock only when no task is running
-        setTaskCompletedEarly(false); // reset for next task
+        setFocusMode(false);
+        setTaskCompletedEarly(false);
       }
+
+      // If a new task just started, force back to website (fullscreen)
+      if (nowIdx >= 0 && nowIdx !== lastIdx && !taskCompletedEarly) {
+        setFocusMode(true);
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        }
+        window.focus();
+      }
+      lastIdx = nowIdx;
     }, 1000);
     return () => clearInterval(timer);
-  }, [dk, emergencyActive, currentTask, taskCompletedEarly]);
+  }, [emergencyActive, taskCompletedEarly]);
 
   // persist emergency
   useEffect(() => {
     localStorage.setItem(LS_EMERGENCY(dk), String(emergencyLeft));
   }, [emergencyLeft, dk]);
 
-  // detect tab switch → lock
+  // Force fullscreen when focus mode activates
   useEffect(() => {
-    const handleVisibility = () => {
-      if (document.hidden && focusMode && !emergencyActive) {
-        setFocusMode(true);
-      }
+    if (focusMode && !document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+    if (!focusMode && document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+  }, [focusMode]);
+
+  // Block Android/iOS back button navigation
+  useEffect(() => {
+    const blockBack = (e) => {
+      e.preventDefault();
+      window.history.pushState(null, "", window.location.href);
     };
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, [focusMode, emergencyActive]);
+    window.addEventListener("popstate", blockBack);
+    window.history.pushState(null, "", window.location.href);
+    return () => window.removeEventListener("popstate", blockBack);
+  }, []);
 
   // Emergency skip logic
   const useEmergencySkip = () => {
@@ -284,72 +246,11 @@ export default function App() {
     }, 15 * 60 * 1000);
   };
 
-  const notifyTask = (idx) => {
-    if (!("Notification" in window)) return;
-    if (Notification.permission !== "granted") return;
-    const title = idx >= 0 ? `Now: ${tasks[idx].task}` : "Free slot";
-    const body = idx >= 0 ? `Time: ${tasks[idx].time}` : "No task right now.";
-    try { new Notification(title, { body, silent: true }); } catch {}
-  };
-
-  const canActOnCurrent = currentIdx >= 0 && !completedSet.has(currentIdx) && !skippedSet.has(currentIdx);
-
   const markDone = () => {
-    if (!canActOnCurrent) return;
+    if (currentIdx < 0 || completedSet.has(currentIdx)) return;
     setCompleted([...completed, currentIdx]);
-    setTaskCompletedEarly(true); // mark that task is completed early
-    setFocusMode(false); // unlock phone until next task
-  };
-
-  const skipTask = () => {
-    if (!canActOnCurrent) return;
-    setSkipped([...skipped, currentIdx]);
-    setStreak(0);
-    localStorage.setItem(LS_LAST_DATE, dk);
-  };
-
-  const finalizePreviousDay = (prevKey) => {
-    const c = JSON.parse(localStorage.getItem(LS_COMPLETIONS(prevKey) || "[]") || "[]");
-    const s = JSON.parse(localStorage.getItem(LS_SKIPS(prevKey) || "[]") || "[]");
-    const hadSkip = Array.isArray(s) && s.length > 0;
-    const allDone = Array.isArray(c) && c.length === tasks.length;
-
-    const lastDate = localStorage.getItem(LS_LAST_DATE);
-    if (lastDate !== prevKey) {
-      if (!hadSkip && allDone) {
-        const newStreak = Number(localStorage.getItem(LS_STREAK) || 0) + 1;
-        localStorage.setItem(LS_STREAK, String(newStreak));
-      } else {
-        localStorage.setItem(LS_STREAK, "0");
-      }
-      localStorage.setItem(LS_LAST_DATE, prevKey);
-      setStreak(Number(localStorage.getItem(LS_STREAK) || 0));
-    }
-  };
-
-  const formatTime = (secs) => {
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${m}m ${s < 10 ? "0" : ""}${s}s`;
-  };
-
-  const categoryClass = (cat) => {
-    switch (cat) {
-      case "health": return "badge green";
-      case "coding": return "badge indigo";
-      case "learning": return "badge blue";
-      case "office": return "badge amber";
-      case "break": return "badge rose";
-      case "personal": return "badge slate";
-      default: return "badge";
-    }
-  };
-
-  const resetToday = () => {
-    setCompleted([]);
-    setSkipped([]);
-    localStorage.removeItem(LS_COMPLETIONS(dk));
-    localStorage.removeItem(LS_SKIPS(dk));
+    setTaskCompletedEarly(true);
+    setFocusMode(false);
   };
 
   return (
@@ -357,34 +258,11 @@ export default function App() {
       <header className="topbar">
         <div className="brand">Discipline Tracker</div>
         <div className="top-actions">
-          <button className="btn outline" onClick={() => setShowReport(true)}>View Report</button>
           <button className="btn warning" onClick={useEmergencySkip} disabled={emergencyLeft <= 0 || emergencyActive}>
             Emergency Skip ({emergencyLeft} left)
           </button>
-          <button className="btn ghost" onClick={resetToday}>Reset Today</button>
         </div>
       </header>
-
-      <section className="stats">
-        <div className="stat">
-          <div className="stat-head">Streak</div>
-          <div className="stat-value">{streak} 🔥</div>
-        </div>
-        <div className="stat">
-          <div className="stat-head">Completed</div>
-          <div className="stat-value">{doneCount}/{total}</div>
-        </div>
-        <div className="stat">
-          <div className="stat-head">Skipped</div>
-          <div className="stat-value">{skipCount}</div>
-        </div>
-        <div className="progress-wrap">
-          <div className="progress-label">Daily Progress: {successRate}%</div>
-          <div className="progress">
-            <div className="progress-bar" style={{ width: `${successRate}%` }} />
-          </div>
-        </div>
-      </section>
 
       <main className="main">
         {currentTask ? (
@@ -392,64 +270,27 @@ export default function App() {
             <div className="task-time">⏰ {currentTask.time}</div>
             <div className="task-title">{currentTask.task}</div>
 
-            <div className="badges">
-              <span className={categoryClass(currentTask.category)}>{currentTask.category}</span>
-              {currentTask.food !== "-" && <span className="badge neutral">🍽 {currentTask.food}</span>}
-            </div>
-
-            <div className="benefits">
-              <div className="benefit">✅ {currentTask.benefit}</div>
-              <div className="loss">❌ {currentTask.loss}</div>
-            </div>
-
-            <div className="timer">⏳ {formatTime(timeLeft)} left</div>
+            <div className="timer">⏳ {Math.floor(timeLeft/60)}m {timeLeft%60}s left</div>
 
             <div className="actions">
-              <button className="btn success" disabled={!canActOnCurrent} onClick={markDone}>Mark Done</button>
-              <button className="btn danger" disabled={!canActOnCurrent} onClick={skipTask}>Skip</button>
+              <button className="btn success" onClick={markDone}>Mark Done</button>
             </div>
-
-            {!canActOnCurrent && (
-              <div className="mini-note">
-                {completedSet.has(currentIdx) ? "You completed this task ✅" :
-                 skippedSet.has(currentIdx) ? "You skipped this task ❌" :
-                 "Waiting..."}
-              </div>
-            )}
           </div>
         ) : (
           <div className="free-card">
             <div className="free-title">No task right now 🎉</div>
-            <div className="free-sub">Use this window to stretch, hydrate, or prep for the next slot.</div>
           </div>
         )}
       </main>
 
-      {showReport && (
-        <div className="modal-backdrop" onClick={() => setShowReport(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-title">Daily Report — {dk}</div>
-            <div className="modal-body">
-              <div className="report-row"><span>Completed:</span><b>{doneCount}</b></div>
-              <div className="report-row"><span>Skipped:</span><b>{skipCount}</b></div>
-              <div className="report-row"><span>Total Tasks:</span><b>{total}</b></div>
-              <div className="report-row"><span>Success Rate:</span><b>{successRate}%</b></div>
-              <div className="report-note">
-                {skipCount > 0
-                  ? "You skipped at least one task — streak reset."
-                  : doneCount === total
-                    ? "Perfect day! Streak will increase at midnight 👑"
-                    : "Aim for full completion to build your streak 💪"}
-              </div>
-            </div>
-            <div className="modal-actions">
-              <button className="btn primary" onClick={() => setShowReport(false)}>Close</button>
-            </div>
-          </div>
+      {focusMode && !emergencyActive && (
+        <div className="focus-overlay">
+          <p>Focus Mode Active. Complete or skip your task to unlock.</p>
+          <button className="btn warning" onClick={useEmergencySkip} disabled={emergencyLeft <= 0 || emergencyActive}>
+            Emergency Skip ({emergencyLeft} left)
+          </button>
         </div>
       )}
-
-      {focusMode && !emergencyActive && <div className="focus-overlay" />}
     </div>
   );
 }
