@@ -1,6 +1,10 @@
 
+
+
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
+
+/** ---------- TASKS ---------- */
 
 const tasks = [
   { time: "06:00 - 06:10", task: "Wake up + drink warm water", food: "1 glass warm water", benefit: "Hydration, metabolism boost", loss: "Dullness, dehydration", notes: "", category: "health" },
@@ -112,7 +116,6 @@ const tasks = [
   { time: "23:40 - 23:50", task: "Stretch break + lo-fi music 🎵", food: "-", benefit: "Relaxation", loss: "Mental tiredness", notes: "Music", category: "break" },
   { time: "23:50 - 24:00", task: "DSA – medium problem", food: "-", benefit: "Improved logic", loss: "Stagnation", notes: "", category: "coding" }
 ];
-
 /** ---------- Helpers ---------- */
 const dateKey = (d = new Date()) =>
   d.toLocaleDateString("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" });
@@ -222,40 +225,47 @@ export default function App() {
     }
   }, [focusMode]);
 
-  // Block Android/iOS back button navigation (stronger)
+  // Block Android/iOS back button navigation (very strict)
   useEffect(() => {
-    const preventBack = () => {
-      window.history.pushState(null, "", window.location.href);
+    const blockBack = () => {
+      if (focusMode && !emergencyActive) {
+        window.history.pushState(null, "", window.location.href);
+      }
     };
-    window.addEventListener("popstate", preventBack);
+    window.addEventListener("popstate", blockBack);
     window.history.pushState(null, "", window.location.href);
-    return () => window.removeEventListener("popstate", preventBack);
-  }, []);
+    return () => window.removeEventListener("popstate", blockBack);
+  }, [focusMode, emergencyActive]);
 
   useEffect(() => {
     const blockBackKey = (e) => {
       if (focusMode && !emergencyActive) {
-        if (e.key === "Escape" || e.key === "Backspace") {
+        if (["Escape", "Backspace"].includes(e.key)) {
           e.preventDefault();
+          e.stopPropagation();
         }
       }
     };
-    window.addEventListener("keydown", blockBackKey);
-    return () => window.removeEventListener("keydown", blockBackKey);
+    window.addEventListener("keydown", blockBackKey, true);
+    return () => window.removeEventListener("keydown", blockBackKey, true);
   }, [focusMode, emergencyActive]);
 
-  // Disable swipe navigation gestures on mobile
+  // Disable swipe navigation + pull-to-refresh gestures on mobile
   useEffect(() => {
-    const preventSwipe = (e) => {
+    const preventGestures = (e) => {
       if (focusMode && !emergencyActive) {
         e.preventDefault();
       }
     };
-    document.addEventListener("touchstart", preventSwipe, { passive: false });
-    document.addEventListener("touchmove", preventSwipe, { passive: false });
+    document.addEventListener("touchstart", preventGestures, { passive: false });
+    document.addEventListener("touchmove", preventGestures, { passive: false });
+    document.addEventListener("gesturestart", preventGestures, { passive: false });
+    document.addEventListener("scroll", preventGestures, { passive: false });
     return () => {
-      document.removeEventListener("touchstart", preventSwipe);
-      document.removeEventListener("touchmove", preventSwipe);
+      document.removeEventListener("touchstart", preventGestures);
+      document.removeEventListener("touchmove", preventGestures);
+      document.removeEventListener("gesturestart", preventGestures);
+      document.removeEventListener("scroll", preventGestures);
     };
   }, [focusMode, emergencyActive]);
 
