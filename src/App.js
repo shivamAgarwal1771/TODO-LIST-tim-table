@@ -1,7 +1,8 @@
+
+
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 
-/** ---------- TASKS (your original list kept intact) ---------- */
 const tasks = [
   { time: "06:00 - 06:10", task: "Wake up + drink warm water", food: "1 glass warm water", benefit: "Hydration, metabolism boost", loss: "Dullness, dehydration", notes: "", category: "health" },
   { time: "06:10 - 06:20", task: "Toilet", food: "-", benefit: "Detox, fresh start", loss: "Stomach discomfort", notes: "", category: "health" },
@@ -118,8 +119,7 @@ const dateKey = (d = new Date()) =>
   d.toLocaleDateString("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" }); // YYYY-MM-DD
 
 const parseHHMM = (hhmm) => {
-  const [h, m] = hhmm.split(":").map(Number);
-  // support "24:00" as 1440 mins
+  const [h, m] = hhmm.split(":" ).map(Number);
   return (h === 24 ? 24 : h) * 60 + m;
 };
 
@@ -149,10 +149,11 @@ const secondsLeftInCurrent = (idx) => {
 };
 
 /** ---------- LocalStorage keys ---------- */
-const LS_COMPLETIONS = (dk) => `tt_completions_${dk}`; // array of completed indices
-const LS_SKIPS = (dk) => `tt_skips_${dk}`;             // array of skipped indices
+const LS_COMPLETIONS = (dk) => `tt_completions_${dk}`;
+const LS_SKIPS = (dk) => `tt_skips_${dk}`;
 const LS_STREAK = "tt_streak";
 const LS_LAST_DATE = "tt_last_date";
+const LS_EMERGENCY = (dk) => `tt_emergency_${dk}`;
 
 /** ---------- Tiny beep on task change ---------- */
 const beep = () => {
@@ -179,6 +180,11 @@ export default function App() {
   const [timeLeft, setTimeLeft] = useState(secondsLeftInCurrent(findCurrentTaskIndex()));
   const [focusMode, setFocusMode] = useState(false);
   const [showReport, setShowReport] = useState(false);
+  const [emergencyLeft, setEmergencyLeft] = useState(() => {
+    try { return Number(localStorage.getItem(LS_EMERGENCY(dateKey())) || 10); } catch { return 10; }
+  });
+  const [emergencyActive, setEmergencyActive] = useState(false);
+  const [taskCompletedEarly, setTaskCompletedEarly] = useState(false);
 
   // load persisted arrays
   const [completed, setCompleted] = useState(() => {
@@ -218,13 +224,12 @@ export default function App() {
       const nowKey = dateKey();
       if (nowKey !== dk) {
         finalizePreviousDay(dk);
-        // switch to new day state
         setDk(nowKey);
         const newC = JSON.parse(localStorage.getItem(LS_COMPLETIONS(nowKey) || "[]") || "[]");
         const newS = JSON.parse(localStorage.getItem(LS_SKIPS(nowKey) || "[]") || "[]");
         setCompleted(Array.isArray(newC) ? newC : []);
         setSkipped(Array.isArray(newS) ? newS : []);
-        setShowReport(true); // show previous day result
+        setShowReport(true);
       }
 
       // Task change: notify + beep
@@ -235,52 +240,74 @@ export default function App() {
         }
         lastIdx = nowIdx;
       }
+
+      // Auto lock/unlock depending on task state
+      if (nowIdx >= 0 && !emergencyActive) {
+        if (taskCompletedEarly) {
+          setFocusMode(false); // unlock if task was completed early
+        } else {
+          setFocusMode(true); // lock during active task if not completed
+        }
+      } else if (nowIdx < 0 && !emergencyActive) {
+        setFocusMode(false); // unlock only when no task is running
+        setTaskCompletedEarly(false); // reset for next task
+      }
     }, 1000);
     return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dk]);
+  }, [dk, emergencyActive, currentTask, taskCompletedEarly]);
 
-  // Persist when completed/skipped change
+  // persist emergency
   useEffect(() => {
-    localStorage.setItem(LS_COMPLETIONS(dk), JSON.stringify(completed));
-  }, [completed, dk]);
+    localStorage.setItem(LS_EMERGENCY(dk), String(emergencyLeft));
+  }, [emergencyLeft, dk]);
+
+  // detect tab switch → lock
   useEffect(() => {
-    localStorage.setItem(LS_SKIPS(dk), JSON.stringify(skipped));
-  }, [skipped, dk]);
-  useEffect(() => {
-    localStorage.setItem(LS_STREAK, String(streak));
-  }, [streak]);
+    const handleVisibility = () => {
+      if (document.hidden && focusMode && !emergencyActive) {
+        setFocusMode(true);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [focusMode, emergencyActive]);
+
+  // Emergency skip logic
+  const useEmergencySkip = () => {
+    if (emergencyLeft <= 0 || emergencyActive) return;
+    setEmergencyLeft(emergencyLeft - 1);
+    setEmergencyActive(true);
+    setFocusMode(false);
+    setTimeout(() => {
+      setEmergencyActive(false);
+      if (findCurrentTaskIndex() >= 0 && !taskCompletedEarly) setFocusMode(true);
+    }, 15 * 60 * 1000);
+  };
 
   const notifyTask = (idx) => {
     if (!("Notification" in window)) return;
     if (Notification.permission !== "granted") return;
     const title = idx >= 0 ? `Now: ${tasks[idx].task}` : "Free slot";
     const body = idx >= 0 ? `Time: ${tasks[idx].time}` : "No task right now.";
-    try {
-      new Notification(title, { body, silent: true });
-    } catch {}
+    try { new Notification(title, { body, silent: true }); } catch {}
   };
 
-  // Mark done / skip (only allowed on current task, and only once)
   const canActOnCurrent = currentIdx >= 0 && !completedSet.has(currentIdx) && !skippedSet.has(currentIdx);
 
   const markDone = () => {
     if (!canActOnCurrent) return;
-    const next = [...completed, currentIdx];
-    setCompleted(next);
-    // no streak change here; we evaluate at end-of-day
+    setCompleted([...completed, currentIdx]);
+    setTaskCompletedEarly(true); // mark that task is completed early
+    setFocusMode(false); // unlock phone until next task
   };
 
   const skipTask = () => {
     if (!canActOnCurrent) return;
-    const next = [...skipped, currentIdx];
-    setSkipped(next);
-    // Immediate streak reset on any skip
+    setSkipped([...skipped, currentIdx]);
     setStreak(0);
     localStorage.setItem(LS_LAST_DATE, dk);
   };
 
-  // End-of-day logic to update streak
   const finalizePreviousDay = (prevKey) => {
     const c = JSON.parse(localStorage.getItem(LS_COMPLETIONS(prevKey) || "[]") || "[]");
     const s = JSON.parse(localStorage.getItem(LS_SKIPS(prevKey) || "[]") || "[]");
@@ -288,12 +315,11 @@ export default function App() {
     const allDone = Array.isArray(c) && c.length === tasks.length;
 
     const lastDate = localStorage.getItem(LS_LAST_DATE);
-    // Only increment once per day when crossing midnight
     if (lastDate !== prevKey) {
       if (!hadSkip && allDone) {
         const newStreak = Number(localStorage.getItem(LS_STREAK) || 0) + 1;
         localStorage.setItem(LS_STREAK, String(newStreak));
-      } else if (hadSkip || !allDone) {
+      } else {
         localStorage.setItem(LS_STREAK, "0");
       }
       localStorage.setItem(LS_LAST_DATE, prevKey);
@@ -332,10 +358,10 @@ export default function App() {
         <div className="brand">Discipline Tracker</div>
         <div className="top-actions">
           <button className="btn outline" onClick={() => setShowReport(true)}>View Report</button>
-          <button className={`btn ${focusMode ? "danger" : "primary"}`} onClick={() => setFocusMode(v => !v)}>
-            {focusMode ? "Exit Focus" : "Focus Mode"}
+          <button className="btn warning" onClick={useEmergencySkip} disabled={emergencyLeft <= 0 || emergencyActive}>
+            Emergency Skip ({emergencyLeft} left)
           </button>
-          <button className="btn ghost" onClick={resetToday} title="Clear today's data">Reset Today</button>
+          <button className="btn ghost" onClick={resetToday}>Reset Today</button>
         </div>
       </header>
 
@@ -399,7 +425,6 @@ export default function App() {
         )}
       </main>
 
-      {/* Daily Report Modal */}
       {showReport && (
         <div className="modal-backdrop" onClick={() => setShowReport(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -424,8 +449,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Focus overlay in focus mode */}
-      {focusMode && <div className="focus-overlay" />}
+      {focusMode && !emergencyActive && <div className="focus-overlay" />}
     </div>
   );
 }
