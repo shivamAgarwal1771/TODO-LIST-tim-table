@@ -1,38 +1,92 @@
-.App {
+/* Background */
+.app-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: linear-gradient(135deg, #6366f1, #9333ea, #ec4899);
+}
+
+/* Card */
+.task-card {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(12px);
+  padding: 32px 40px;
+  border-radius: 24px;
+  box-shadow: 0 15px 30px rgba(0,0,0,0.2);
+  max-width: 650px;
+  width: 100%;
+  text-align: center;
+  transition: transform 0.3s ease;
+}
+
+.task-card:hover {
+  transform: scale(1.05);
+}
+
+/* Time */
+.task-time {
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin-bottom: 8px;
+}
+
+/* Task Title */
+.task-title {
+  font-size: 2rem;
+  font-weight: 700;
+  margin-bottom: 16px;
+  color: #111827;
+  line-height: 1.3;
+}
+
+/* Food */
+.task-food {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: #047857;
+}
+
+/* Benefits / Loss */
+.task-benefit {
+  font-size: 1rem;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: #1d4ed8;
+}
+
+.task-loss {
+  font-size: 1rem;
+  margin-bottom: 24px;
+  font-weight: 500;
+  color: #dc2626;
+}
+
+/* Timer */
+.task-timer {
+  display: inline-block;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #581c87;
+  background: linear-gradient(to right, #ddd6fe, #fbcfe8);
+  padding: 12px 24px;
+  border-radius: 9999px;
+  box-shadow: 0 6px 15px rgba(0,0,0,0.1);
+}
+
+/* No Task */
+.no-task {
+  color: white;
+  font-size: 1.75rem;
+  font-weight: 600;
+  animation: pulse 1.5s infinite;
   text-align: center;
 }
 
-.App-logo {
-  height: 40vmin;
-  pointer-events: none;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
-}
-
-.App-header {
-  background-color: #282c34;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-size: calc(10px + 2vmin);
-  color: white;
-}
-
-.App-link {
-  color: #61dafb;
-}
-
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+/* Pulse animation for "No task" */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
