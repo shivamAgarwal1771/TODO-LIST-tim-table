@@ -186,16 +186,15 @@ export default function App() {
 
       if (nowIdx >= 0 && !emergencyActive) {
         if (taskCompletedEarly) {
-          setFocusMode(false); // allow navigation if task done early
+          setFocusMode(false);
         } else {
-          setFocusMode(true); // lock if active task not completed
+          setFocusMode(true);
         }
       } else if (nowIdx < 0 && !emergencyActive) {
         setFocusMode(false);
         setTaskCompletedEarly(false);
       }
 
-      // If a new task just started, force back to website (fullscreen)
       if (nowIdx >= 0 && nowIdx !== lastIdx && !taskCompletedEarly) {
         setFocusMode(true);
         if (!document.fullscreenElement) {
@@ -223,16 +222,42 @@ export default function App() {
     }
   }, [focusMode]);
 
-  // Block Android/iOS back button navigation
+  // Block Android/iOS back button navigation (stronger)
   useEffect(() => {
-    const blockBack = (e) => {
-      e.preventDefault();
+    const preventBack = () => {
       window.history.pushState(null, "", window.location.href);
     };
-    window.addEventListener("popstate", blockBack);
+    window.addEventListener("popstate", preventBack);
     window.history.pushState(null, "", window.location.href);
-    return () => window.removeEventListener("popstate", blockBack);
+    return () => window.removeEventListener("popstate", preventBack);
   }, []);
+
+  useEffect(() => {
+    const blockBackKey = (e) => {
+      if (focusMode && !emergencyActive) {
+        if (e.key === "Escape" || e.key === "Backspace") {
+          e.preventDefault();
+        }
+      }
+    };
+    window.addEventListener("keydown", blockBackKey);
+    return () => window.removeEventListener("keydown", blockBackKey);
+  }, [focusMode, emergencyActive]);
+
+  // Disable swipe navigation gestures on mobile
+  useEffect(() => {
+    const preventSwipe = (e) => {
+      if (focusMode && !emergencyActive) {
+        e.preventDefault();
+      }
+    };
+    document.addEventListener("touchstart", preventSwipe, { passive: false });
+    document.addEventListener("touchmove", preventSwipe, { passive: false });
+    return () => {
+      document.removeEventListener("touchstart", preventSwipe);
+      document.removeEventListener("touchmove", preventSwipe);
+    };
+  }, [focusMode, emergencyActive]);
 
   // Emergency skip logic
   const useEmergencySkip = () => {
